@@ -1,4 +1,4 @@
 cookbooks
 =========
 
-Opscode Chef cookbooks
+Opscode Chef cookbooks of Satelliz
