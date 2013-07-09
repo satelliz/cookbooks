@@ -1,0 +1,89 @@
+#!/bin/bash
+
+# Provide your Satelliz portal authentication token here. 
+# Agent can not be installed if no token provided
+TOKEN='<%=node[:satelliz][:token]%>'
+
+# Provide a host name (optional). This host name will be used in 
+# Portal Satelliz for the new installed host. If not provided 
+# then will be used EC2 instance ID as a hostname
+# 
+HNAME='<%= node[:satelliz][:host_name] ? node[:satelliz][:host_name] : nil %>'
+
+DOWNLOAD_SOURCE='<%=node[:satelliz][:download_url]%>'
+SATELLIZ_ENV='<%=node[:satelliz][:env]%>'
+
+function fail() {
+    logger -s -t "SATELLIZ AGENT" "ERROR" "$*"
+    exit -1
+}
+
+[ -d /opt/satelliz-agent ] && fail -t "SATELLIZ AGENT" "already deployed"
+
+if [ -z $TOKEN ]; then
+    logger -s -t "SATELLIZ AGENT" "No TOKEN provided. Installation cancelled."
+    exit
+fi
+
+if [ -z $HNAME ]; then
+    HNAME=`curl -m 2 -fs http://169.254.169.254/latest/meta-data/instance-id` || {
+    logger -s -t "SATELLIZ AGENT" "Will use hostname as agent identification string"
+    HNAME="$(hostname)"
+    }
+fi
+
+set -eu
+
+logger -s -t "SATELLIZ AGENT" "checking environment"
+
+myid=$(id -u)
+SUDO=""
+if ! [ x"$myid" = "x0" ]; then
+    SUDO=sudo
+    myid=$(sudo -S id -u </dev/null) && [ "x$myid" = "x0" ] || fail "Must run as root or have passwordless sudo allowed"
+fi
+
+sysinfo=$(uname -m -o)
+
+machine=$(echo "$sysinfo" | cut -d ' ' -f 1)
+system=$(echo "$sysinfo" | cut -d ' ' -f 2)
+
+[ "$system" = "GNU/Linux" ] || fail "Can not install at system '$system', only GNU/Linux is supported"
+
+logger -s -t "SATELLIZ AGENT" "Checking architecture"
+
+case "$machine" in
+    i?86)
+        logger -s -t "SATELLIZ AGENT" "32-bit system found"
+        agent=satelliz_agent-linux.bin
+        ;;
+    x86_64)
+        if [ -f /lib64/ld-linux-x86-64.so.2 ]; then
+            logger -s -t "SATELLIZ AGENT" "64-bit system found"
+            agent=satelliz_agent-linux64.bin
+        else
+            logger -s -t "SATELLIZ AGENT" "64-bit hardware found, but no x86_64 glibc. Assuming x86"
+            agent=satelliz_agent-linux.bin
+
+        fi
+        ;;
+    *)
+        fail "Sorry, only x86 and x86_64 architectures supported"
+        ;;
+esac
+
+logger -s -t "SATELLIZ AGENT" "Starting deployment"
+
+cd /tmp
+
+curl -O http://$DOWNLOAD_SOURCE/$agent || fail "Problem downloading agent"
+
+logger -s -t "SATELLIZ AGENT" "will be deployed with name $HNAME"
+$SUDO /bin/sh /tmp/$agent -- --satelliz-batch --satelliz-env=$SATELLIZ_ENV --satelliz-auth-token="$TOKEN" --satelliz-systemid=\"$HNAME\" || fail "Problem installing agent"
+
+rm /tmp/$agent
+logger -s -t "SATELLIZ AGENT" "Finished deployment"
+
+UUID=$($SUDO /opt/satelliz-agent/bin/agent_register --check-uuid | grep UUID) || fail "Agent not registered"
+logger -s -t "SATELLIZ AGENT" "registered as $UUID"
+echo "$UUID"
