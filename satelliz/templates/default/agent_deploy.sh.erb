@@ -8,7 +8,7 @@ TOKEN='<%=node[:satelliz][:token]%>'
 # Portal Satelliz for the new installed host. If not provided 
 # then will be used EC2 instance ID as a hostname
 # 
-HNAME='<%= node[:satelliz][:host_name] ? node[:satelliz][:host_name] : nil %>'
+HNAME='<%= node.name ? node.name : nil %>'
 
 DOWNLOAD_SOURCE='<%=node[:satelliz][:download_url]%>'
 SATELLIZ_ENV='<%=node[:satelliz][:env]%>'
